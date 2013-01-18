@@ -7,9 +7,11 @@ import (
 	"html/template"
 	"io/ioutil"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -55,19 +57,64 @@ func livefireMain(files ...string) error {
 	}
 	defer watcher.Fs.Close()
 
+	svc := tarantula.NewService(cfg.Bind)
+	svc.Bind("/", presentContent)
+	svc.Bind("/.wait", waitForRefresh)
+
 	for _, f := range files {
+		f = filepath.Clean(f)
+
 		err = watcher.Fs.Watch(f)
 		if err != nil {
 			return err
 		}
 		cfg.Files = append(cfg.Files, f)
+		bindFile(svc, f)
 	}
 	go watcher.Process()
 
-	svc := tarantula.NewService(cfg.Bind)
-	svc.Bind("/", presentContent)
-	svc.Bind("/.wait", waitForRefresh)
 	return svc.Run()
+}
+
+func bindFile(svc *tarantula.Service, file string) {
+	if file == "" {
+		return // quit playin'..
+	}
+
+	ext := filepath.Ext(file)
+	switch ext {
+	case ".js", ".css", ".html":
+		return
+	}
+
+	// by default, the location is our path, with any stupid backslashes fixt.
+	loc := filepath.ToSlash(file)
+
+	switch file[0] {
+	case '.', '/':
+		// Whups! Okay, let's pretend that's in the root of our CWD.
+		// that means .foo.png, ../foo.png and /foo.png should all be treated as foo.png
+		loc = filepath.Base(file)
+	default:
+		// Okay, let's let the OS try to sort this out, too; since C:\foo.png is a potential pain in our ass.
+		if filepath.IsAbs(file) {
+			loc = filepath.Base(file)
+		}
+	}
+
+	if loc[0] != '/' {
+		loc = "/" + loc
+	}
+
+	content_type := mime.TypeByExtension(ext)
+	log.Printf("serving %#v as %#v", file, loc)
+	svc.Bind(loc, func(q *http.Request) (interface{}, error) {
+		f, err := os.Open(file)
+		if err != nil {
+			return nil, err
+		}
+		return tarantula.CopyToHttp{content_type, f}, nil
+	})
 }
 
 var watcher Watcher

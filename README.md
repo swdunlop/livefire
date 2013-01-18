@@ -41,8 +41,9 @@ Well, I'm happy to accept pull requests.  This was the stupidest thing that woul
 
 ### Seriously, Where is this going?
 
-A predecessor to Livefire actually acted as a reverse proxy to an application server, permitting hacking on experimental browser UI's without affecting the production UI.  I'll probably want that back, soonish.  Also, unrecognized files, such as a PNG image, should probably be served directly to the browser when referenced.
+A predecessor to Livefire actually acted as a reverse proxy to an application server, permitting hacking on experimental browser UI's without affecting the production UI.  I'll probably want that back, soonish.  
 
 A POST interface to "save" components might be nice to combine with a browser side editor.  I wind up pining for [Sublime Text](http://sublimetext.com) about five minutes in to using an in-browser editor, so I'll probably ignore it until someone submits an improvement.
 
 Oh, hey, and maybe something clever to pull libs from CDN's would be nice.
+
