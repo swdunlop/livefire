@@ -5,10 +5,12 @@ import (
 	"github.com/howeyc/fsnotify"
 	"github.com/swdunlop/tarantula-go"
 	"html/template"
+	"io"
 	"io/ioutil"
 	"log"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -38,6 +40,7 @@ func main() {
 	}
 	flag.StringVar(&cfg.Bind, "bind", "127.0.0.1:8080", "where the http server should listen")
 	flag.StringVar(&cfg.Title, "title", "Livefire Exercise", "title for the generated html page")
+	flag.StringVar(&cfg.Fwd, "fwd", "", "URL for a subordinate server for any unrecognized paths")
 	flag.Parse()
 
 	err := livefireMain(flag.Args()...)
@@ -58,7 +61,7 @@ func livefireMain(files ...string) error {
 	defer watcher.Fs.Close()
 
 	svc := tarantula.NewService(cfg.Bind)
-	svc.Bind("/", presentContent)
+	svc.Bind("/index.html", presentContent)
 	svc.Bind("/.wait", waitForRefresh)
 
 	for _, f := range files {
@@ -71,9 +74,68 @@ func livefireMain(files ...string) error {
 		cfg.Files = append(cfg.Files, f)
 		bindFile(svc, f)
 	}
+
+	if cfg.Fwd != "" {
+		cfg.fwdUrl, err = url.Parse(cfg.Fwd)
+		if err != nil {
+			return err
+		}
+		svc.Bind("/", forwardRequest)
+	} else {
+		svc.BindRedirect("/", "/index.html")
+	}
+
 	go watcher.Process()
 
 	return svc.Run()
+}
+
+func forwardRequest(req *http.Request) (interface{}, error) {
+	fwd := cfg.fwdUrl
+	req.URL.Host = fwd.Host
+	req.URL.Scheme = fwd.Scheme
+	req.URL.Path = fwd.Path + req.URL.Path
+	req.TLS = nil
+	req.RequestURI = ""
+
+	if req.URL.User == nil {
+		req.URL.User = fwd.User
+	}
+	if req.URL.Fragment == "" {
+		req.URL.Fragment = fwd.Fragment
+	}
+
+	//TODO: forward cookies
+
+	log.Printf("forwarding to %#v", req.URL.String())
+
+	rsp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	return ProxyResponse{req, rsp}, nil
+}
+
+type ProxyResponse struct {
+	req *http.Request
+	rsp *http.Response
+}
+
+func (pr ProxyResponse) RespondToHttp(w http.ResponseWriter) error {
+	wh := w.Header()
+	for k, vv := range pr.rsp.Header {
+		for _, v := range vv {
+			wh.Add(k, v)
+		}
+	}
+	w.WriteHeader(pr.rsp.StatusCode)
+	body := pr.rsp.Body
+	if body == nil {
+		return nil
+	}
+	defer body.Close()
+	_, err := io.Copy(w, body)
+	return err
 }
 
 func bindFile(svc *tarantula.Service, file string) {
@@ -231,9 +293,11 @@ type Ticket struct {
 var cfg Config
 
 type Config struct {
-	Bind  string   `json:"bind"`
-	Title string   `json:"title"`
-	Files []string `json:"files"`
+	Fwd    string `json:"fwd"`
+	fwdUrl *url.URL
+	Bind   string   `json:"bind"`
+	Title  string   `json:"title"`
+	Files  []string `json:"files"`
 }
 
 type Content struct {

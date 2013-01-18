@@ -16,6 +16,7 @@ Livefire serves a number of local files on the command line and constructs skele
 	livefire option ... path ...
 	  -bind="127.0.0.1:8080": where the http server should listen
 	  -title="Livefire Exercise": title for the generated html page
+          -fwd="": URL for a subordinate server for any unrecognized paths
 
 	File Handling:
 	  .css: wrapped with a <style> tag and placed in the <head>
@@ -35,15 +36,15 @@ And save.  Your browser should automatically refresh to show you the changed dat
 
 Livefire uses [FsNotify](https://github.com/howeyc/fsnotify) to track all of the specified files in a goroutine.  When your browser contacts the server, Livefire assembles a simple skeleton integrating all of these files it recognizes along with a shim that watches `/.watch?t=$now`, which will block until FsNotify notices a change.  When `/.watch` returns, the browser will automatically refresh the page, picking up your changes.
 
+For files that Livefire doesn't understand, like PNGs, it will just forward the file whenever it is requested.  If you update the file, that will trigger a refresh as well -- handy for you graphical types.
+
+If Livefire doesn't know what to do with a URL, but it was given a `-fwd` option, it will forward the request, acting as a reverse proxy.  This makes hacking on experimental interfaces in front of a production API easier, and was its original use case.
+
 ### But I wanted to save state / code in the browser / hax0r the gibson!
 
-Well, I'm happy to accept pull requests.  This was the stupidest thing that would let me hack on processing.js that I could accept.
+Well, I'm happy to accept pull requests.  This was the stupidest thing that would let me hack on processing.js that I could accept.  
 
-### Seriously, Where is this going?
+### What the hell was this written for?
 
-A predecessor to Livefire actually acted as a reverse proxy to an application server, permitting hacking on experimental browser UI's without affecting the production UI.  I'll probably want that back, soonish.  
-
-A POST interface to "save" components might be nice to combine with a browser side editor.  I wind up pining for [Sublime Text](http://sublimetext.com) about five minutes in to using an in-browser editor, so I'll probably ignore it until someone submits an improvement.
-
-Oh, hey, and maybe something clever to pull libs from CDN's would be nice.
+Between me, and my data at [ThreatGRID](https://www.threatgrid.com), there is a lot of Java.  Nobody in their right mind would want me in their Web Application Server, so I prefer to shove my experiments over the top.
 
