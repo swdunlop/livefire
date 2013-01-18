@@ -105,8 +105,6 @@ func forwardRequest(req *http.Request) (interface{}, error) {
 		req.URL.Fragment = fwd.Fragment
 	}
 
-	//TODO: forward cookies
-
 	log.Printf("forwarding to %#v", req.URL.String())
 
 	rsp, err := http.DefaultClient.Do(req)
