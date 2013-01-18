@@ -16,7 +16,7 @@ Livefire serves a number of local files on the command line and constructs skele
 	livefire option ... path ...
 	  -bind="127.0.0.1:8080": where the http server should listen
 	  -title="Livefire Exercise": title for the generated html page
-          -fwd="": URL for a subordinate server for any unrecognized paths
+	  -fwd="": URL for a subordinate server for any unrecognized paths
 
 	File Handling:
 	  .css: wrapped with a <style> tag and placed in the <head>
