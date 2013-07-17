@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"github.com/howeyc/fsnotify"
 	"github.com/swdunlop/tarantula-go"
 	"html/template"
 	"io"
@@ -53,26 +52,19 @@ func main() {
 func livefireMain(files ...string) error {
 	var err error
 
-	watcher.Add = make(chan *Ticket)
-	watcher.Fs, err = fsnotify.NewWatcher()
-	if err != nil {
-		return err
-	}
-	defer watcher.Fs.Close()
-
 	svc := tarantula.NewService(cfg.Bind)
 	svc.Bind("/index.html", presentContent)
 	svc.Bind("/.wait", waitForRefresh)
 
 	for _, f := range files {
 		f = filepath.Clean(f)
-
-		err = watcher.Fs.Watch(f)
-		if err != nil {
-			return err
-		}
 		cfg.Files = append(cfg.Files, f)
 		bindFile(svc, f)
+	}
+
+	stalker, err := Stalk(files...)
+	if err != nil {
+		return err
 	}
 
 	if cfg.Fwd != "" {
@@ -85,9 +77,31 @@ func livefireMain(files ...string) error {
 		svc.BindRedirect("/", "/index.html")
 	}
 
-	go watcher.Process()
-
+	go processBrowsers(stalker)
 	return svc.Run()
+}
+
+func processBrowsers(stalker chan string) {
+	ts := time.Now().Unix()
+
+	var pending []chan int64
+	for {
+		select {
+		case t := <-browsers:
+			if t.Time < ts {
+				t.Result <- ts
+			} else {
+				pending = append(pending, t.Result)
+			}
+		case <-stalker:
+			ts = time.Now().Unix()
+			for _, p := range pending {
+				p <- ts
+			}
+			pending = nil
+
+		}
+	}
 }
 
 func forwardRequest(req *http.Request) (interface{}, error) {
@@ -177,6 +191,7 @@ func bindFile(svc *tarantula.Service, file string) {
 	})
 }
 
+/*
 var watcher Watcher
 
 type Watcher struct {
@@ -226,10 +241,11 @@ func (w *Watcher) reportEvent(name string) {
 	}
 	w.tix = nil
 }
+*/
 
 func presentContent(req *http.Request) (interface{}, error) {
 	doc := new(Content)
-	doc.Time = uint64(time.Now().Unix())
+	doc.Time = int64(time.Now().Unix())
 	doc.Cfg = &cfg
 	for _, f := range cfg.Files {
 		err := doc.AddFile(f)
@@ -270,12 +286,12 @@ func waitForRefresh(req *http.Request) (interface{}, error) {
 	if t == "" {
 		return nil, tarantula.HttpError{400, `expected unix epoch of last update as "t"`}
 	}
-	ts, err := strconv.ParseUint(t, 0, 64)
+	ts, err := strconv.ParseInt(t, 0, 64)
 	if err != nil {
 		return nil, tarantula.HttpError{400, err.Error()}
 	}
-	result := make(chan uint64)
-	watcher.Add <- &Ticket{ts, result}
+	result := make(chan int64)
+	browsers <- Ticket{ts, result}
 	t2, ok := <-result
 	if !ok {
 		return nil, tarantula.HttpError{500, `turned away while waiting`}
@@ -283,9 +299,10 @@ func waitForRefresh(req *http.Request) (interface{}, error) {
 	return t2, nil
 }
 
+var browsers = make(chan Ticket, 16)
 type Ticket struct {
-	Time   uint64
-	Result chan uint64
+	Time   int64
+	Result chan int64
 }
 
 var cfg Config
@@ -299,7 +316,7 @@ type Config struct {
 }
 
 type Content struct {
-	Time uint64
+	Time int64
 	Cfg  *Config
 	CSS  []template.CSS
 	JS   []template.JS
