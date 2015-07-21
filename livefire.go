@@ -1,7 +1,8 @@
 package main
 
 import (
-	"flag"
+	"fmt"
+	"github.com/swdunlop/docopt-go"
 	"github.com/swdunlop/tarantula-go"
 	"html/template"
 	"io"
@@ -17,52 +18,62 @@ import (
 	"time"
 )
 
+var USAGE = `
+USAGE: 
+    livefire [options] FILE...
+
+OPTIONS:
+    -b ADDR   where the http server should listen [default: 127.0.0.1:8080]
+    -t TITLE  title for the generated html page [default: Livefire Exercise]
+    -f URL    HTTP server for any unrecognized paths
+
+Livefire serves a number of local files on the command line and
+constructs skeleton HTML page around them that will
+automatically refresh when any of the files change according to
+the operating system.  The composition of this file depends on
+the extension of the files provided on the command line:
+
+    .css   wrapped with a <style> tag and placed in the <head>
+    .html  placed verbatim in the <body>
+    .js    wrapped with a <script> tag and placed in the <head>
+    .*     served as a file with an autodetected MIME type
+
+Livefire can also be used as a reverse proxy for any files not
+provided on the command line.  This makes it easy to wrap an
+experimental HTML interface around another HTTP service.
+`
+
 func main() {
-	flag.Usage = func() {
-		println("livefire option ... path ...")
-		flag.PrintDefaults()
-		println()
-		println("File Handling:")
-		println("  .css: wrapped with a <style> tag and placed in the <head>")
-		println("  .html: placed verbatim in the <body>")
-		println("  .js: wrapped with a <script> tag and placed in the <head>")
-		println("  .*: served as a file with an autodetected MIME type")
-		println()
-		println(
-			"Livefire serves a number of local files on the command line and",
-			"constructs skeleton HTML page around them that will",
-			"automatically refresh when any of the files change according to",
-			"the operating system.  The composition of this file depends on",
-			"the extension of the files:")
-		println()
+	o, err := docopt.Parse(USAGE, nil, true, ``, true)
+	if err != nil {
+		panic(err)
 		os.Exit(2)
 	}
-	flag.StringVar(&cfg.Bind, "bind", "127.0.0.1:8080", "where the http server should listen")
-	flag.StringVar(&cfg.Title, "title", "Livefire Exercise", "title for the generated html page")
-	flag.StringVar(&cfg.Fwd, "fwd", "", "URL for a subordinate server for any unrecognized paths")
-	flag.Parse()
-
-	err := livefireMain(flag.Args()...)
+	err = docopt.Merge(&cfg, o)
+	if err != nil {
+		panic(err)
+	}
+	err = livefireMain()
 	if err != nil {
 		println("!!", err.Error())
 		os.Exit(1)
 	}
 }
 
-func livefireMain(files ...string) error {
+func livefireMain() error {
 	var err error
 
 	svc := tarantula.NewService(cfg.Bind)
 	svc.Bind("/index.html", presentContent)
 	svc.Bind("/.wait", waitForRefresh)
 
-	for _, f := range files {
-		f = filepath.Clean(f)
+	for i, f := range cfg.Files {
+		cfg.Files[i] = filepath.Clean(f)
 		cfg.Files = append(cfg.Files, f)
 		bindFile(svc, f)
 	}
 
-	stalker, err := Stalk(files...)
+	stalker, err := Stalk(cfg.Files...)
 	if err != nil {
 		return err
 	}
@@ -78,6 +89,11 @@ func livefireMain(files ...string) error {
 	}
 
 	go processBrowsers(stalker)
+	err = svc.Start()
+	if err != nil {
+		return err
+	}
+	log.Println("ready to accept connections on http://" + cfg.Bind)
 	return svc.Run()
 }
 
@@ -183,65 +199,28 @@ func bindFile(svc *tarantula.Service, file string) {
 	content_type := mime.TypeByExtension(ext)
 	log.Printf("serving %#v as %#v", file, loc)
 	svc.Bind(loc, func(q *http.Request) (interface{}, error) {
-		f, err := os.Open(file)
+		data, err := ioutil.ReadFile(file)
 		if err != nil {
 			return nil, err
 		}
-		return tarantula.CopyToHttp{content_type, f}, nil
+		return byteContent{content_type, data}, nil
 	})
 }
 
-/*
-var watcher Watcher
-
-type Watcher struct {
-	Fs   *fsnotify.Watcher
-	time uint64
-	tix  []*Ticket
-	Add  chan *Ticket
+type byteContent struct {
+	Mime string
+	Data []byte
 }
 
-func (w *Watcher) Process() {
-	w.time = 0
-	for {
-		select {
-		case evt := <-w.Fs.Event:
-			w.reportEvent(evt.Name)
-		case err := <-w.Fs.Error:
-			log.Println("<watcher>", err.Error())
-		case t := <-w.Add:
-			w.acceptTicket(t)
-		}
-	}
+func (bc byteContent) RespondToHttp(w http.ResponseWriter) error {
+	h := w.Header()
+	h.Set("Content-type", bc.Mime)
+	h.Set("Content-length", fmt.Sprint(len(bc.Data)))
+	h.Set("Connection", "keep-alive")
+	w.WriteHeader(200)
+	_, err := w.Write(bc.Data)
+	return err
 }
-
-func (w *Watcher) acceptTicket(t *Ticket) {
-	if t.Time < w.time {
-		t.Result <- w.time
-		return
-	}
-	w.tix = append(w.tix, t)
-}
-
-func (w *Watcher) reportEvent(name string) {
-	fi, err := os.Stat(name)
-	if err != nil {
-		log.Println("<watcher>", err.Error())
-		return
-	}
-
-	ts := uint64(fi.ModTime().Unix())
-	if ts < w.time {
-		return
-	}
-	w.time = ts
-
-	for _, t := range w.tix {
-		t.Result <- ts
-	}
-	w.tix = nil
-}
-*/
 
 func presentContent(req *http.Request) (interface{}, error) {
 	doc := new(Content)
@@ -300,6 +279,7 @@ func waitForRefresh(req *http.Request) (interface{}, error) {
 }
 
 var browsers = make(chan Ticket, 16)
+
 type Ticket struct {
 	Time   int64
 	Result chan int64
@@ -308,11 +288,12 @@ type Ticket struct {
 var cfg Config
 
 type Config struct {
-	Fwd    string `json:"fwd"`
+	Fwd   string   `docopt:"-f" json:"fwd"`
+	Bind  string   `docopt:"-b" json:"bind"`
+	Title string   `docopt:"-t" json:"title"`
+	Files []string `docopt:"FILE" json:"files"`
+
 	fwdUrl *url.URL
-	Bind   string   `json:"bind"`
-	Title  string   `json:"title"`
-	Files  []string `json:"files"`
 }
 
 type Content struct {
