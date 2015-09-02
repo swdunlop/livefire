@@ -241,7 +241,6 @@ func (doc *Content) AddFile(f string) error {
 		if err != nil {
 			return err
 		}
-		println("added", f)
 		doc.JS = append(doc.JS, template.JS(data))
 	case ".css":
 		data, err := ioutil.ReadFile(f)
