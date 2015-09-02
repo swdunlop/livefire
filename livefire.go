@@ -69,7 +69,6 @@ func livefireMain() error {
 
 	for i, f := range cfg.Files {
 		cfg.Files[i] = filepath.Clean(f)
-		cfg.Files = append(cfg.Files, f)
 		bindFile(svc, f)
 	}
 
@@ -242,6 +241,7 @@ func (doc *Content) AddFile(f string) error {
 		if err != nil {
 			return err
 		}
+		println("added", f)
 		doc.JS = append(doc.JS, template.JS(data))
 	case ".css":
 		data, err := ioutil.ReadFile(f)
