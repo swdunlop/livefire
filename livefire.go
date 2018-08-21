@@ -24,8 +24,7 @@ func main() {
 	flag.StringVar(&cfg.Fwd, `r`, ``, `URL backing any unrecognized paths`)
 	flag.Usage = usage
 	flag.Parse()
-
-	err := livefireMain()
+	err := livefireMain(flag.Args()...)
 	if err != nil {
 		println("!!", err.Error())
 		os.Exit(1)
@@ -33,14 +32,15 @@ func main() {
 }
 
 func usage() {
-	println(`USAGE: livefire [FLAGS...] FILES...`)
+	println(`USAGE: livefire [FLAGS...] CONTENTS...`)
 	println(`FLAGS:`)
 	flag.PrintDefaults()
 	println(helpText)
+	os.Exit(2)
 }
 
 var helpText = `
-Livefire serves a number of local files on the command line and constructs
+Livefire serves a number of local files on the command line and generates a
 skeleton HTML page around them that will automatically refresh when any of the
 files change according to the operating system.  The composition of this file
 depends on the extension of the files provided on the command line:
@@ -50,21 +50,38 @@ depends on the extension of the files provided on the command line:
     .js    wrapped with a <script> tag and placed in the <head>
     .*     served as a file with an autodetected MIME type
 
+URLs referencing JavaScript and CSS stylesheets can also be added to the
+command line, which will result in a reference in the generated HTML.  This
+makes it easier to include content from CDN's.
+
 Livefire can also be used as a reverse proxy for any files not provided on
 the command line.  This makes it easy to wrap an experimental HTML interface
 around another HTTP service.
 `
 
-func livefireMain() error {
+func livefireMain(args ...string) error {
 	var err error
 
 	svc := tarantula.NewService(cfg.Bind)
 	svc.Bind("/index.html", presentContent)
 	svc.Bind("/.wait", waitForRefresh)
 
-	for i, f := range cfg.Files {
-		cfg.Files[i] = filepath.Clean(f)
-		bindFile(svc, f)
+	for _, arg := range args {
+		u, err := url.Parse(arg)
+		if err != nil || u.Host == `` {
+			arg = filepath.Clean(arg)
+			bindFile(svc, arg)
+			continue
+		}
+		ext := path.Ext(u.Path)
+		switch ext {
+		case `.js`:
+			cfg.CDN.JS = append(cfg.CDN.JS, template.URL(arg))
+		case `.css`:
+			cfg.CDN.CSS = append(cfg.CDN.CSS, template.URL(arg))
+		default:
+			return fmt.Errorf(`cannot bind %v`, arg)
+		}
 	}
 
 	stalker, err := Stalk(cfg.Files...)
@@ -165,6 +182,7 @@ func bindFile(svc *tarantula.Service, file string) {
 		return // quit playin'..
 	}
 
+	cfg.Files = append(cfg.Files, file)
 	ext := filepath.Ext(file)
 	switch ext {
 	case ".js", ".css", ".html":
@@ -286,7 +304,10 @@ type Config struct {
 	Bind  string
 	Title string
 	Files []string
-
+	CDN   struct {
+		CSS []template.URL
+		JS  []template.URL
+	}
 	fwdUrl *url.URL
 }
 
@@ -323,8 +344,12 @@ var tmpl = template.Must(template.New("root").Parse(`<html><head>{{if .Cfg.Title
   	};
   	window.setTimeout(watchHttp, 100); // Clear the throbber.
   })();</script>
+{{end}}{{range .Cfg.CDN.CSS}}
+  <link rel="stylesheet" href="{{.}}" />
 {{end}}{{range .CSS}}
   <style>{{.}}</style>
+{{end}}{{range .Cfg.CDN.JS}}
+  <script src="{{.}}"></script>
 {{end}}{{range .JS}}
   <script>{{.}}</script>
 {{end}}</head><body>{{range .HTML}}
