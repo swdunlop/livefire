@@ -8,12 +8,6 @@
   version = "v0.9.0"
 
 [[projects]]
-  name = "github.com/swdunlop/docopt-go"
-  packages = ["."]
-  revision = "7fb3e64728058525f5940d913d0b854474dcd66a"
-  version = "0.6.1"
-
-[[projects]]
   branch = "master"
   name = "github.com/swdunlop/tarantula-go"
   packages = ["."]
@@ -22,6 +16,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "f43c78228eaf7c23bf46fee7174e005e4ab6c1b51ecb88e3f10fb7d268e62c79"
+  inputs-digest = "ed156fa5db674ec4dca3408b144f1bd810353f60144a5f6fe158ba2595c60cd2"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -1,9 +1,8 @@
 package main
 
 import (
+	"flag"
 	"fmt"
-	"github.com/swdunlop/docopt-go"
-	"github.com/swdunlop/tarantula-go"
 	"html/template"
 	"io"
 	"io/ioutil"
@@ -16,49 +15,45 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+	tarantula "github.com/swdunlop/tarantula-go"
 )
 
-var USAGE = `
-USAGE: 
-    livefire [options] FILE...
+func main() {
+	flag.StringVar(&cfg.Bind, `b`, `127.0.0.1:8080`, `HTTP server listen address`)
+	flag.StringVar(&cfg.Title, `t`, `Live Fire Exercise`, `title for generated HTML page`)
+	flag.StringVar(&cfg.Fwd, `r`, ``, `URL backing any unrecognized paths`)
+	flag.Usage = usage
+	flag.Parse()
 
-OPTIONS:
-    -b ADDR   where the http server should listen [default: 127.0.0.1:8080]
-    -t TITLE  title for the generated html page [default: Livefire Exercise]
-    -f URL    HTTP server for any unrecognized paths
+	err := livefireMain()
+	if err != nil {
+		println("!!", err.Error())
+		os.Exit(1)
+	}
+}
 
-Livefire serves a number of local files on the command line and
-constructs skeleton HTML page around them that will
-automatically refresh when any of the files change according to
-the operating system.  The composition of this file depends on
-the extension of the files provided on the command line:
+func usage() {
+	println(`USAGE: livefire [FLAGS...] FILES...`)
+	println(`FLAGS:`)
+	flag.PrintDefaults()
+	println(helpText)
+}
+
+var helpText = `
+Livefire serves a number of local files on the command line and constructs
+skeleton HTML page around them that will automatically refresh when any of the
+files change according to the operating system.  The composition of this file
+depends on the extension of the files provided on the command line:
 
     .css   wrapped with a <style> tag and placed in the <head>
     .html  placed verbatim in the <body>
     .js    wrapped with a <script> tag and placed in the <head>
     .*     served as a file with an autodetected MIME type
 
-Livefire can also be used as a reverse proxy for any files not
-provided on the command line.  This makes it easy to wrap an
-experimental HTML interface around another HTTP service.
+Livefire can also be used as a reverse proxy for any files not provided on
+the command line.  This makes it easy to wrap an experimental HTML interface
+around another HTTP service.
 `
-
-func main() {
-	o, err := docopt.Parse(USAGE, nil, true, ``, true)
-	if err != nil {
-		panic(err)
-		os.Exit(2)
-	}
-	err = docopt.Merge(&cfg, o)
-	if err != nil {
-		panic(err)
-	}
-	err = livefireMain()
-	if err != nil {
-		println("!!", err.Error())
-		os.Exit(1)
-	}
-}
 
 func livefireMain() error {
 	var err error
@@ -287,10 +282,10 @@ type Ticket struct {
 var cfg Config
 
 type Config struct {
-	Fwd   string   `docopt:"-f" json:"fwd"`
-	Bind  string   `docopt:"-b" json:"bind"`
-	Title string   `docopt:"-t" json:"title"`
-	Files []string `docopt:"FILE" json:"files"`
+	Fwd   string
+	Bind  string
+	Title string
+	Files []string
 
 	fwdUrl *url.URL
 }
